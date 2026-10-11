@@ -13,7 +13,7 @@ export default function ProtectedRoute({ children }) {
     let active = true;
 
     axios
-      .get(`${API}/me`, { withCredentials: true })
+      .get(`${API}/auth/me`, { withCredentials: true })
       .then(() => {
         if (active) setStatus("authenticated");
       })

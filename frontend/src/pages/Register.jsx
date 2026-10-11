@@ -27,7 +27,7 @@ export default function Register() {
     setLoading(true);
 
     try {
-      await axios.post(`${API}/register`, form, {
+      await axios.post(`${API}/auth/register`, form, {
         withCredentials: true,
       });
 

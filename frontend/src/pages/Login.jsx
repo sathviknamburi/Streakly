@@ -26,11 +26,15 @@ export default function Login() {
     setLoading(true);
 
     try {
-      await axios.post(
-        `${API}/login`,
+      const response = await axios.post(
+        `${API}/auth/login`,
         form,
         { withCredentials: true }
       );
+
+      if (response.data?.token) {
+        localStorage.setItem("streakly_token", response.data.token);
+      }
 
       navigate("/dashboard", { replace: true });
     } catch (err) {

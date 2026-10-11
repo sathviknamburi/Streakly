@@ -1,0 +1,32 @@
+name: Keep Backend Alive
+
+on:
+  schedule:
+    # Runs every 14 minutes to prevent free-tier servers (Render, Railway, etc.) from sleeping
+    - cron: '*/14 * * * *'
+  workflow_dispatch: # Allows manual trigger from the GitHub Actions tab
+
+jobs:
+  ping-backend:
+    name: Ping Health Endpoint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health & keep-alive route
+        run: |
+          TARGET="${{ secrets.BACKEND_URL }}"
+          if [ -z "$TARGET" ]; then
+            echo "BACKEND_URL secret is not set yet in GitHub repository secrets."
+            echo "To enable external keep-alive pinging, go to Repository Settings -> Secrets and variables -> Actions and add BACKEND_URL (e.g. https://streakly-backend.onrender.com)."
+            exit 0
+          fi
+
+          CLEAN_URL="${TARGET%/}"
+          echo "Pinging $CLEAN_URL/api/health..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -m 30 "$CLEAN_URL/api/health" || echo "failed")
+          echo "Received HTTP status: $HTTP_STATUS"
+
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "Backend is alive and healthy!"
+          else
+            echo "Ping attempted. Status code was $HTTP_STATUS"
+          fi
