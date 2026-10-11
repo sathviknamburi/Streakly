@@ -22,32 +22,70 @@ const app = express();
 // Required for accurate client IP detection with rate-limiting and secure HTTPS cookies
 app.set("trust proxy", 1);
 
-// Security headers
-app.use(helmet());
+// Security headers with relaxed cross-origin resource policy for API hosting
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
 
-// Frontend access configuration
+// Known frontend origins
 const configuredFrontend = process.env.FRONTEND_URL
-  ? process.env.FRONTEND_URL.replace(/\/+$/, "")
+  ? process.env.FRONTEND_URL.trim().replace(/\/+$/, "")
   : null;
 
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
+  "https://streakly-fsd.vercel.app",
   configuredFrontend,
 ].filter(Boolean);
 
+// Explicit CORS preflight and headers middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  if (origin) {
+    // Dynamically set origin to allow all vercel.app domains, configured origins, or localhost
+    const cleanOrigin = origin.trim().replace(/\/+$/, "");
+    res.setHeader("Access-Control-Allow-Origin", cleanOrigin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    );
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, Cookie, X-Requested-With, Accept, x-cron-secret"
+    );
+  }
+
+  // Handle browser preflight OPTIONS requests immediately
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  next();
+});
+
+// Standard CORS middleware as secondary layer
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, or server-to-server)
-      if (!origin) return callback(null, true);
-      const cleanOrigin = origin.replace(/\/+$/, "");
-      if (allowedOrigins.includes(cleanOrigin)) {
-        return callback(null, true);
-      }
-      return callback(null, true); // Permissive callback while credentials match origin
+      // Allow any origin with credentials reflected
+      return callback(null, true);
     },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Cookie",
+      "X-Requested-With",
+      "Accept",
+      "x-cron-secret",
+    ],
+    optionsSuccessStatus: 200,
   })
 );
 
@@ -58,13 +96,14 @@ app.use(cookieParser());
 // Rate limit login attempts
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: 15,
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/login", loginLimiter);
+app.use("/login", loginLimiter);
 
 // Health check endpoints (used by keep-alive cron and uptime monitors)
 app.get("/", (req, res) => {
@@ -89,10 +128,27 @@ app.get("/health", (req, res) => {
 
 // API routes
 const authRoutes = require("./routes/authRoutes");
+const habitRoutes = require("./routes/habitRoutes");
+const cronRoutes = require("./routes/cronRoutes");
+
+// Multi-path mounting so all frontend URL configurations work seamlessly:
+// 1. Root-level paths: /login, /register, /me, /logout, /habits
+app.use("/", authRoutes);
+app.use("/habits", habitRoutes);
+
+// 2. /auth prefix paths: /auth/login, /auth/register, /auth/me, /auth/logout
+app.use("/auth", authRoutes);
+
+// 3. /api prefix paths: /api/login, /api/register, /api/me, /api/logout, /api/habits
+app.use("/api", authRoutes);
+app.use("/api/habits", habitRoutes);
+
+// 4. /api/auth prefix paths: /api/auth/login, /api/auth/register, /api/auth/me, /api/auth/logout
 app.use("/api/auth", authRoutes);
-app.use("/api", authRoutes); // Fallback so /api/login and /api/register are supported
-app.use("/api/habits", require("./routes/habitRoutes"));
-app.use("/api/cron", require("./routes/cronRoutes"));
+
+// Cron routes
+app.use("/api/cron", cronRoutes);
+app.use("/cron", cronRoutes);
 
 const PORT = process.env.PORT || 5000;
 
